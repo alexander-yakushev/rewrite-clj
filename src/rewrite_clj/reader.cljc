@@ -258,51 +258,6 @@
 
 ;; ## Reader Types
 
-;;
-;; clojure.tools.reader (at the time of this writing v1.3.5) does not seem to normalize Windows \r\n newlines
-;; properly to \n for Clojure
-;;
-;; ClojureScript seems to work fine - but note that for peek it will return \r for \r\n and \r\f instead of \n.
-;;
-;; see https://clojure.atlassian.net/browse/TRDR-65
-;;
-;; For now, we introduce a normalizing reader for Clojure.
-;; Once/if this isssue is fixed in in tools reader we can turf our work-around.
-
-#?(:clj
-   (deftype NewlineNormalizingReader
-       [rdr
-        ^:unsynchronized-mutable read-ahead-char
-        ^:unsynchronized-mutable user-peeked-char]
-     r/Reader
-     (read-char [_reader]
-       (if-let [ch user-peeked-char]
-         (do (set! user-peeked-char nil) ch)
-         (let [ch (or read-ahead-char (r/read-char rdr))]
-           (when read-ahead-char (set! read-ahead-char nil))
-           (if (not (identical? \return ch))
-             ch
-             (let [read-ahead-ch (r/read-char rdr)]
-               (when (not (or (identical? \newline read-ahead-ch)
-                              (identical? \formfeed read-ahead-ch)))
-                 (set! read-ahead-char read-ahead-ch))
-               \newline)))))
-
-     (peek-char [reader]
-       (or user-peeked-char
-           (let [ch (.read-char reader)]
-             (set! user-peeked-char ch)
-             ch)))))
-
-#?(:clj
-   (defn newline-normalizing-reader
-     "Normalizes the following line endings to LF (line feed - 0x0A):
-      - LF (remains LF)
-      - CRLF (carriage return 0x0D line feed 0x0A)
-      - CRFF (carriage return 0x0D form feed 0x0C)"
-     ^Closeable [rdr]
-     (NewlineNormalizingReader. (r/to-rdr rdr) nil nil)))
-
 #?(:clj
    (defn file-reader
      "Create reader for files."
@@ -310,8 +265,6 @@
      [f]
      (-> (io/file f)
          (io/reader)
-         (PushbackReader. 2)
-         newline-normalizing-reader
          (r/indexing-push-back-reader 2))))
 
 (defn string-reader
@@ -319,5 +272,4 @@
   [s]
   (-> s
       r/string-push-back-reader
-      #?@(:clj [newline-normalizing-reader])
       r/indexing-push-back-reader))
